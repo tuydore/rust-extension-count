@@ -7,6 +7,7 @@ type FileMap = HashMap<Option<String>, (usize, u64)>;
 
 const TPIPE: &str = "├";
 const LPIPE: &str = "└";
+const NOEXT: &str = "NOEXT";
 
 #[derive(Debug)]
 struct Files {
@@ -15,14 +16,41 @@ struct Files {
 }
 
 impl Files {
+    /// Sort instance by extension name, file number or file size.
+    fn items_sorted_by(&self, sort_by: &str) -> Vec<(&str, &usize, &u64)> {
+        let mut item_list: Vec<(&str, &usize, &u64)> = self
+            .filemap
+            .iter()
+            .map(|(os, (nf, ts))| (os.as_ref().map_or(NOEXT, |s| &s[..]), nf, ts))
+            .collect();
+
+        // TODO: convert to Enum?
+        match sort_by {
+            "alphabetically" => {
+                item_list.sort_by_key(|(x, _, _)| *x);
+            }
+            "num_files" => {
+                item_list.sort_by_key(|(_, x, _)| *x);
+            }
+            "total_size" => {
+                item_list.sort_by_key(|(_, _, x)| *x);
+            }
+            s => panic!("Unknown sorting pattern {}", s),
+        };
+        item_list
+    }
+
     /// Draw all contained items.
-    fn draw(&self, skipped: &[usize], share_dir_with_subdirs: bool) {
+    fn draw(&self, skipped: &[usize], share_dir_with_subdirs: bool, sort_by: &str) {
         let total: usize = self.filemap.len();
         let mut text: String;
         let max_filenum_size = self.max_filenum_size();
         let max_extension_size = self.max_extension_size();
 
-        for (i, (extension, (num_files, total_size))) in self.filemap.iter().enumerate() {
+        for (i, (extension, num_files, total_size)) in
+            self.items_sorted_by(sort_by).iter().enumerate()
+        {
+            // for (i, (extension, (num_files, total_size))) in self.filemap.iter().enumerate() {
             text = Self::text(
                 extension,
                 num_files,
@@ -61,7 +89,7 @@ impl Files {
 
     /// Generate the text for a combination of extension, num_files and total_size
     fn text(
-        extension: &Option<String>,
+        extension: &str,
         num_files: &usize,
         total_size: &u64,
         max_extension_size: &usize,
@@ -69,7 +97,7 @@ impl Files {
     ) -> String {
         format!(
             "{:max_extension_size$} -- {:max_filenum_size$} -- {}",
-            extension.as_ref().unwrap_or(&"NOEXT".to_owned()), // TODO: better solution for &str?
+            extension,
             num_files,
             human_filesize(total_size, 2),
             max_extension_size = max_extension_size,
@@ -98,7 +126,6 @@ struct Directory {
 }
 
 // TODO: maximum filesize
-// TODO: maximum recursion depth optional
 
 impl Directory {
     fn new(path: PathBuf, depth: usize) -> Self {
@@ -164,7 +191,7 @@ impl Directory {
         self.files.filemap.is_empty() && self.subdirs.iter().all(|d| d.is_empty())
     }
 
-    fn draw(&self, is_last: bool, mut skipped: Vec<usize>, skip_empty: bool) {
+    fn draw(&self, is_last: bool, mut skipped: Vec<usize>, skip_empty: bool, sort_by: &str) {
         // do not print empty dirs
         if skip_empty && self.is_empty() {
             return;
@@ -199,12 +226,18 @@ impl Directory {
 
         // draw all contained files
         if !self.files.filemap.is_empty() {
-            self.files.draw(&skipped, !self.subdirs.is_empty());
+            self.files.draw(&skipped, !self.subdirs.is_empty(), sort_by);
         }
 
         // draw all contained subdirs
+        // TODO: sort directories alphabetically?
         for (idx, dir) in self.subdirs.iter().enumerate() {
-            dir.draw(idx + 1 == self.subdirs.len(), skipped.clone(), skip_empty);
+            dir.draw(
+                idx + 1 == self.subdirs.len(),
+                skipped.clone(),
+                skip_empty,
+                sort_by,
+            );
         }
     }
 
@@ -282,8 +315,9 @@ fn main() {
     };
 
     let skip_empty: bool = true;
+    let sort_by: &str = "total_size";
 
     let mut root_dir = Directory::new(root, 0);
-    root_dir.condense_to_depth(2, skip_empty);
-    root_dir.draw(true, vec![], skip_empty);
+    root_dir.condense_to_depth(0, skip_empty);
+    root_dir.draw(true, vec![], skip_empty, sort_by);
 }
