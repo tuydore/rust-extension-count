@@ -1,5 +1,5 @@
+use std::env;
 use std::{collections::HashMap, fs::DirEntry};
-use std::{env, str::FromStr};
 use std::{path::PathBuf, usize};
 use structopt::StructOpt;
 
@@ -28,13 +28,15 @@ impl Files {
         // TODO: convert to Enum?
         match sort_by {
             "alphabetically" => {
-                item_list.sort_by_key(|(x, _, _)| *x);
+                item_list.sort_by_key(|(x, _, _)| x.to_lowercase());
             }
             "num_files" => {
                 item_list.sort_by_key(|(_, x, _)| *x);
+                item_list.reverse();
             }
             "total_size" => {
                 item_list.sort_by_key(|(_, _, x)| *x);
+                item_list.reverse();
             }
             s => panic!("Unknown sorting pattern {}", s),
         };
@@ -97,7 +99,7 @@ impl Files {
         max_filenum_size: &usize,
     ) -> String {
         format!(
-            "{:max_extension_size$} -- {:max_filenum_size$} -- {}",
+            "{:max_extension_size$} ── {:max_filenum_size$} ── {}",
             extension,
             num_files,
             human_filesize(total_size, 2),
@@ -108,9 +110,9 @@ impl Files {
 
     fn update_from_filemap(&mut self, filemap: &mut FileMap) {
         for (k, (v0, v1)) in filemap.drain() {
-            if self.filemap.contains_key(&k) {
-                self.filemap.get_mut(&k).unwrap().0 += v0;
-                self.filemap.get_mut(&k).unwrap().1 += v1;
+            if let Some((num_files, total_size)) = self.filemap.get_mut(&k) {
+                *num_files += v0;
+                *total_size += v1;
             } else {
                 self.filemap.insert(k, (v0, v1));
             }
@@ -161,7 +163,6 @@ impl Directory {
 
     /// Update the current file mapping with information from a given entry. Assumes the entry
     /// is a file and does not check.
-    #[allow(clippy::map_entry)]
     fn update_filemap(file: &DirEntry, map: &mut FileMap) {
         let filepath: PathBuf = file.path();
 
@@ -178,10 +179,9 @@ impl Directory {
                 .to_owned()
         });
 
-        if map.contains_key(&extension) {
-            let val = map.get_mut(&extension).unwrap();
-            val.0 += 1;
-            val.1 += filesize;
+        if let Some((num_files, total_size)) = map.get_mut(&extension) {
+            *num_files += 1;
+            *total_size += filesize;
         } else {
             map.insert(extension, (1, filesize));
         }
@@ -343,5 +343,3 @@ fn main() {
     }
     root_dir.draw(true, vec![], !opt.show_empty, &opt.sort_by);
 }
-
-// TODO: reverse sort
