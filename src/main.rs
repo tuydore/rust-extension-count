@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs::DirEntry};
 use std::{env, str::FromStr};
 use std::{path::PathBuf, usize};
+use structopt::StructOpt;
 
 /// Mapping from extension to number of files and total size.
 type FileMap = HashMap<Option<String>, (usize, u64)>;
@@ -307,17 +308,40 @@ fn human_filesize(bytes: &u64, decimals: usize) -> String {
     }
 }
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let root: PathBuf = match args.len() {
-        1 => env::current_dir().expect("Could not parse current dir."),
-        _ => PathBuf::from_str(&args[1]).expect("Incorrect path."),
-    };
+#[derive(Debug, StructOpt)]
+#[structopt(
+    name = "rstree",
+    about = "Rust Simple Tree. Like the 'tree' command, but shows file number and file sizes."
+)]
+struct Opt {
+    /// Root directory to scan.
+    #[structopt(parse(from_os_str))]
+    input: Option<PathBuf>,
 
-    let skip_empty: bool = true;
-    let sort_by: &str = "total_size";
+    /// Maximum depth to dive to.
+    #[structopt(short = "d", long = "depth")]
+    depth: Option<usize>,
 
-    let mut root_dir = Directory::new(root, 0);
-    root_dir.condense_to_depth(0, skip_empty);
-    root_dir.draw(true, vec![], skip_empty, sort_by);
+    /// Skip empty directories.
+    #[structopt(short = "e", long = "show-empty")]
+    show_empty: bool,
+
+    /// Sort files: alphabetically, num_files or total_size.
+    #[structopt(short = "s", long = "sort-by", default_value = "total_size")]
+    sort_by: String,
 }
+
+fn main() {
+    let opt = Opt::from_args();
+    println!("{:?}", opt);
+    let root: PathBuf = opt
+        .input
+        .unwrap_or_else(|| env::current_dir().expect("Could not parse current dir."));
+    let mut root_dir = Directory::new(root, 0);
+    if let Some(d) = opt.depth {
+        root_dir.condense_to_depth(d, !opt.show_empty);
+    }
+    root_dir.draw(true, vec![], !opt.show_empty, &opt.sort_by);
+}
+
+// TODO: reverse sort
