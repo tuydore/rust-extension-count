@@ -76,6 +76,17 @@ impl Files {
             max_filenum_size = max_filenum_size,
         )
     }
+
+    fn update_from_filemap(&mut self, filemap: &mut FileMap) {
+        for (k, (v0, v1)) in filemap.drain() {
+            if self.filemap.contains_key(&k) {
+                self.filemap.get_mut(&k).unwrap().0 += v0;
+                self.filemap.get_mut(&k).unwrap().1 += v1;
+            } else {
+                self.filemap.insert(k, (v0, v1));
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -86,6 +97,7 @@ struct Directory {
     depth: usize, // TODO: connect the two depths by reference
 }
 
+// TODO: maximum filesize
 // TODO: maximum recursion depth optional
 
 impl Directory {
@@ -147,8 +159,9 @@ impl Directory {
         }
     }
 
+    /// No files are contained anywhere down the directory tree from here.
     fn is_empty(&self) -> bool {
-        self.files.filemap.is_empty() && self.subdirs.is_empty()
+        self.files.filemap.is_empty() && self.subdirs.iter().all(|d| d.is_empty())
     }
 
     fn draw(&self, is_last: bool, mut skipped: Vec<usize>, skip_empty: bool) {
@@ -192,6 +205,34 @@ impl Directory {
         // draw all contained subdirs
         for (idx, dir) in self.subdirs.iter().enumerate() {
             dir.draw(idx + 1 == self.subdirs.len(), skipped.clone(), skip_empty);
+        }
+    }
+
+    /// Recursively pull files from the contained subdirectories.
+    fn pull_files_from_below(&mut self, skip_empty: bool) {
+        for dir in self.subdirs.iter_mut() {
+            // if a subdir has further subdirectories, recurse the operation
+            if !dir.subdirs.is_empty() {
+                dir.pull_files_from_below(skip_empty)
+            }
+            self.files.update_from_filemap(&mut dir.files.filemap);
+        }
+        if skip_empty {
+            self.subdirs.clear();
+        }
+    }
+
+    /// Condense files upward, up to a certain depth.
+    fn condense_to_depth(&mut self, depth: usize, skip_empty: bool) {
+        for dir in self.subdirs.iter_mut() {
+            if dir.depth >= depth {
+                dir.pull_files_from_below(skip_empty)
+            } else {
+                dir.condense_to_depth(depth, skip_empty)
+            }
+        }
+        if self.depth >= depth {
+            self.pull_files_from_below(skip_empty)
         }
     }
 }
@@ -239,6 +280,10 @@ fn main() {
         1 => env::current_dir().expect("Could not parse current dir."),
         _ => PathBuf::from_str(&args[1]).expect("Incorrect path."),
     };
-    let root_dir = Directory::new(root, 0);
-    root_dir.draw(true, vec![], true);
+
+    let skip_empty: bool = true;
+
+    let mut root_dir = Directory::new(root, 0);
+    root_dir.condense_to_depth(2, skip_empty);
+    root_dir.draw(true, vec![], skip_empty);
 }
