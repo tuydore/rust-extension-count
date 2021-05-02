@@ -318,8 +318,7 @@ impl Directory {
     }
 }
 
-// Depth zero is the depth of the items contained in the ROOT directory the program was called
-// in. All files in the root directory have depth==0 BUT all directories in it have depth==1.
+// Depth zero is the depth of the items contained in the ROOT directory the program was called in.
 fn vertical_bars(depth: &usize, skipped: &[usize]) -> String {
     let mut s: String = "".to_owned();
     for i in 1..*depth {
