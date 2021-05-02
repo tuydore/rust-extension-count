@@ -1,6 +1,6 @@
 [package]
 name = "rextc"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["tuydore <20150266+tuydore@users.noreply.github.com>"]
 description = "Like the 'tree' command, but recursively shows file number and file sizes for on a per-extension basis."
 edition = "2018"

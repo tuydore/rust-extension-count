@@ -345,9 +345,9 @@ fn print_item(text: &str, is_last: bool, depth: &usize, skipped: &[usize]) {
 fn human_filesize(bytes: &u64, decimals: usize) -> String {
     if *bytes < 2u64.pow(10) {
         format!("{} B", bytes)
-    } else if *bytes < 2u64.pow(20) {
+    } else if *bytes < 1024u64.pow(2) {
         format!("{:.1$} kiB", *bytes as f64 / 1024.0, decimals)
-    } else if *bytes < 2u64.pow(40) {
+    } else if *bytes < 1024u64.pow(3) {
         format!("{:.1$} MiB", *bytes as f64 / 1024.0f64.powi(2), decimals)
     } else {
         format!("{:.1$} GiB", *bytes as f64 / 1024.0f64.powi(3), decimals)
