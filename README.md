@@ -25,7 +25,7 @@ ARGS:
 
 ## Examples
 ```
-> rstree -d 1
+> rstree -d 1 ~/repositories/rust-simple-tree
 /Users/tuydore/repositories/rust-simple-tree
 ├──  N/A   ── 3 ── 7.07 kiB
 ├── .lock  ── 1 ── 5.94 kiB
