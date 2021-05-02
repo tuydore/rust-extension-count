@@ -356,8 +356,8 @@ fn human_filesize(bytes: &u64, decimals: usize) -> String {
 
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "rstree",
-    about = "Rust Simple Tree. Like the 'tree' command, but shows file number and file sizes."
+    name = "rextc",
+    about = "Rust Extension Count. Like the 'tree' command, but shows file number and file sizes."
 )]
 struct Opt {
     /// Root directory to scan.

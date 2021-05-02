@@ -1,14 +1,14 @@
-# Rust Simple Tree
+# Rust Extension Count
 
 Simple command line utility to show file count and total size on a per-extension basis.
 
-Use `rstree -h` to show the help menu.
+Use `rextc -h` to show the help menu.
 ```
-rstree 0.1.0
-Rust Simple Tree. Like the 'tree' command, but shows file number and file sizes.
+rextc 0.1.0
+Rust Extension Count. Like the 'tree' command, but shows file number and file sizes.
 
 USAGE:
-    rstree [FLAGS] [OPTIONS] [input]
+    rextc [FLAGS] [OPTIONS] [input]
 
 FLAGS:
     -h, --help          Prints help information
@@ -25,8 +25,8 @@ ARGS:
 
 ## Examples
 ```
-> rstree -d 1 ~/repositories/rust-simple-tree
-/Users/tuydore/repositories/rust-simple-tree
+> rextc -d 1 ~/repositories/rust-extension-count
+/Users/tuydore/repositories/rust-extension-count
 ├──  N/A   ── 3 ── 7.07 kiB
 ├── .lock  ── 1 ── 5.94 kiB
 ├── .md    ── 1 ── 1.82 kiB

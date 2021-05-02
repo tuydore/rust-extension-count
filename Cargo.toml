@@ -1,11 +1,11 @@
 [package]
-name = "rstree"
-version = "0.1.1"
+name = "rextc"
+version = "0.1.0"
 authors = ["tuydore <20150266+tuydore@users.noreply.github.com>"]
 description = "Like the 'tree' command, but recursively shows file number and file sizes for on a per-extension basis."
 edition = "2018"
 readme = "README.md"
-repository = "https://github.com/tuydore/rust-simple-tree"
+repository = "https://github.com/tuydore/rust-extension-count"
 license = "MIT"
 keywords = ["files", "extension", "extensions"]
 categories = ["command-line-utilities"]
