@@ -6,7 +6,6 @@ description = "Like the 'tree' command, but recursively shows file number and fi
 edition = "2018"
 readme = "README.md"
 repository = "https://github.com/tuydore/rust-simple-tree"
-license = "MIT"
 license-file = "LICENSE"
 keywords = ["files", "extension", "extensions"]
 categories = ["command-line-utilities"]
