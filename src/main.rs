@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+use std::cmp::Ordering;
 use std::env;
 use std::{collections::HashMap, fs::DirEntry};
 use std::{path::PathBuf, usize};
@@ -8,7 +10,25 @@ type FileMap = HashMap<Option<String>, (usize, u64)>;
 
 const TPIPE: &str = "├";
 const LPIPE: &str = "└";
-const NOEXT: &str = "NOEXT";
+const NOEXT: &str = " N/A";
+
+/// Method for sorting files when printing to console.
+enum FileSort {
+    Alphabetically,
+    NumFiles,
+    TotalSize,
+}
+
+impl FileSort {
+    fn from_char(c: &char) -> Self {
+        match c {
+            'A' => Self::Alphabetically,
+            'N' => Self::NumFiles,
+            'S' => Self::TotalSize,
+            c => panic!("Unknown file sort key {}", c),
+        }
+    }
+}
 
 #[derive(Debug)]
 struct Files {
@@ -18,33 +38,39 @@ struct Files {
 
 impl Files {
     /// Sort instance by extension name, file number or file size.
-    fn items_sorted_by(&self, sort_by: &str) -> Vec<(&str, &usize, &u64)> {
-        let mut item_list: Vec<(&str, &usize, &u64)> = self
+    fn items_sorted_by(&self, sort_by: &FileSort) -> Vec<(&Option<String>, &usize, &u64)> {
+        let mut item_list: Vec<(&Option<String>, &usize, &u64)> = self
             .filemap
             .iter()
-            .map(|(os, (nf, ts))| (os.as_ref().map_or(NOEXT, |s| &s[..]), nf, ts))
+            // .map(|(os, (nf, ts))| (os.as_ref().map_or(NOEXT, |s| &s[..]), nf, ts))
+            .map(|(os, (nf, ts))| (os, nf, ts))
             .collect();
 
         // TODO: convert to Enum?
         match sort_by {
-            "alphabetically" => {
-                item_list.sort_by_key(|(x, _, _)| x.to_lowercase());
+            FileSort::Alphabetically => {
+                // item_list.sort_by_key(|(x, _, _)| x.to_lowercase());
+                item_list.sort_by(|(a, _, _), (b, _, _)| match (a, b) {
+                    (None, None) => Ordering::Equal,
+                    (Some(_), None) => Ordering::Less,
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(a), Some(b)) => a.to_lowercase().cmp(&b.to_lowercase()),
+                })
             }
-            "num_files" => {
+            FileSort::NumFiles => {
                 item_list.sort_by_key(|(_, x, _)| *x);
                 item_list.reverse();
             }
-            "total_size" => {
+            FileSort::TotalSize => {
                 item_list.sort_by_key(|(_, _, x)| *x);
                 item_list.reverse();
             }
-            s => panic!("Unknown sorting pattern {}", s),
         };
         item_list
     }
 
     /// Draw all contained items.
-    fn draw(&self, skipped: &[usize], share_dir_with_subdirs: bool, sort_by: &str) {
+    fn draw(&self, skipped: &[usize], share_dir_with_subdirs: bool, sort_by: &FileSort) {
         let total: usize = self.filemap.len();
         let mut text: String;
         let max_filenum_size = self.max_filenum_size();
@@ -55,7 +81,9 @@ impl Files {
         {
             // for (i, (extension, (num_files, total_size))) in self.filemap.iter().enumerate() {
             text = Self::text(
-                extension,
+                extension
+                    .as_ref()
+                    .map_or(NOEXT.to_owned(), |s| format!(".{}", s)),
                 num_files,
                 total_size,
                 &max_extension_size,
@@ -92,7 +120,7 @@ impl Files {
 
     /// Generate the text for a combination of extension, num_files and total_size
     fn text(
-        extension: &str,
+        extension: String,
         num_files: &usize,
         total_size: &u64,
         max_extension_size: &usize,
@@ -103,7 +131,7 @@ impl Files {
             extension,
             num_files,
             human_filesize(total_size, 2),
-            max_extension_size = max_extension_size,
+            max_extension_size = max_extension_size + 1,
             max_filenum_size = max_filenum_size,
         )
     }
@@ -131,44 +159,63 @@ struct Directory {
 // TODO: maximum filesize
 
 impl Directory {
-    fn new(path: PathBuf, depth: usize) -> Self {
+    fn new(path: PathBuf, depth: usize) -> Result<Self> {
         let mut filemap: FileMap = HashMap::new();
         let mut subdirs: Vec<PathBuf> = Vec::new();
 
         // QUESTION: would an iterator speed things up? Rayon?
-        for entry in path.read_dir().expect("Could not read directory.") {
+        for entry in path
+            .read_dir()
+            .with_context(|| format!("Could not read directory {}.", path.to_str().unwrap()))?
+        {
             if let Ok(entry) = entry {
                 if let Ok(filetype) = entry.file_type() {
                     if filetype.is_dir() {
                         subdirs.push(entry.path());
                     } else if filetype.is_file() {
-                        Self::update_filemap(&entry, &mut filemap);
+                        Self::update_filemap(&entry, &mut filemap)?;
                     } // TODO: handle symlinks
                 }
             }
         }
-        Self {
+
+        // sort directories alphabetically
+        subdirs.sort_by_key(|p| {
+            p.file_name()
+                .expect("Could not parse dirname")
+                .to_str()
+                .expect("Could not convert OsStr to &str")
+                .to_owned()
+        });
+
+        Ok(Self {
             path,
             subdirs: subdirs
                 .into_iter()
-                .map(|s| Self::new(s, depth + 1))
+                // QUESTION: is the unwrap here enough to propagate upwards?
+                .map(|s| Self::new(s, depth + 1).unwrap())
                 .collect(),
             files: Files {
                 filemap,
                 depth: depth + 1,
             },
             depth,
-        }
+        })
     }
 
     /// Update the current file mapping with information from a given entry. Assumes the entry
     /// is a file and does not check.
-    fn update_filemap(file: &DirEntry, map: &mut FileMap) {
+    fn update_filemap(file: &DirEntry, map: &mut FileMap) -> Result<()> {
         let filepath: PathBuf = file.path();
 
         let filesize: u64 = filepath
             .metadata()
-            .expect("Could not fetch file metadata.")
+            .with_context(|| {
+                format!(
+                    "Could not fetch file metadata for {}",
+                    filepath.to_str().unwrap()
+                )
+            })?
             .len();
 
         // use None to mark files with no extension
@@ -185,6 +232,7 @@ impl Directory {
         } else {
             map.insert(extension, (1, filesize));
         }
+        Ok(())
     }
 
     /// No files are contained anywhere down the directory tree from here.
@@ -192,7 +240,7 @@ impl Directory {
         self.files.filemap.is_empty() && self.subdirs.iter().all(|d| d.is_empty())
     }
 
-    fn draw(&self, is_last: bool, mut skipped: Vec<usize>, skip_empty: bool, sort_by: &str) {
+    fn draw(&self, is_last: bool, mut skipped: Vec<usize>, skip_empty: bool, sort_by: &FileSort) {
         // do not print empty dirs
         if skip_empty && self.is_empty() {
             return;
@@ -231,7 +279,6 @@ impl Directory {
         }
 
         // draw all contained subdirs
-        // TODO: sort directories alphabetically?
         for (idx, dir) in self.subdirs.iter().enumerate() {
             dir.draw(
                 idx + 1 == self.subdirs.len(),
@@ -322,24 +369,29 @@ struct Opt {
     #[structopt(short = "d", long = "depth")]
     depth: Option<usize>,
 
-    /// Skip empty directories.
+    /// Show empty directories.
     #[structopt(short = "e", long = "show-empty")]
     show_empty: bool,
 
-    /// Sort files: alphabetically, num_files or total_size.
-    #[structopt(short = "s", long = "sort-by", default_value = "total_size")]
-    sort_by: String,
+    /// Sort files: A (alphabetically), N (number of files) or S (total file size).
+    #[structopt(short = "s", long = "sort-by", default_value = "S")]
+    sort_by: char,
 }
 
-fn main() {
+fn main() -> Result<()> {
     let opt = Opt::from_args();
-    println!("{:?}", opt);
     let root: PathBuf = opt
         .input
         .unwrap_or_else(|| env::current_dir().expect("Could not parse current dir."));
-    let mut root_dir = Directory::new(root, 0);
+    let mut root_dir = Directory::new(root, 0)?;
     if let Some(d) = opt.depth {
         root_dir.condense_to_depth(d, !opt.show_empty);
     }
-    root_dir.draw(true, vec![], !opt.show_empty, &opt.sort_by);
+    root_dir.draw(
+        true,
+        vec![],
+        !opt.show_empty,
+        &FileSort::from_char(&opt.sort_by),
+    );
+    Ok(())
 }
