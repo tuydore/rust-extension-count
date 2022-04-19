@@ -6,7 +6,7 @@ Use `rextc -h` to show the help menu.
 ```
 rextc 2.0.0
 tuydore <tuydore+github@protonmail.com>
-Like the 'tree' command, but recursively shows file number and file sizes for on a per-extension
+Like the 'tree' command, but recursively shows file number and file sizes on a per-extension
 basis.
 
 USAGE:
