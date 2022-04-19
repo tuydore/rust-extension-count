@@ -60,7 +60,8 @@ impl Extension {
 
     /// Convert bytes to easily-readable binary-scaled units.
     fn size_human_readable(&self, decimals: usize) -> String {
-        if self.total_size_bytes < 2u64.pow(10) {
+        // TODO: avoid this repetition with a macro
+        if self.total_size_bytes < 1024 {
             format!("{} B  ", self.total_size_bytes)
         } else if self.total_size_bytes < 1024u64.pow(2) {
             format!("{:.1$} kiB", self.total_size_bytes as f64 / 1024.0, decimals)
@@ -128,6 +129,7 @@ impl Directory {
         }
 
         // Subdirectories are always sorted by name, regardless of extension sorting.
+        // TODO: convert expect to anyhow::Error propagation
         directory
             .subdirectories
             .sort_unstable_by_key(|dir| dir.name().expect("invalid directory name"));
@@ -158,6 +160,7 @@ impl Directory {
     /// If the file's extension already exists, increment the count and add the file size to the
     /// total. Otherwise create a new entry.
     fn add_file(file: &Path, extensions: &mut Vec<Extension>) {
+        // TODO: convert expect to anyhow::Error propagation
         let extension = file
             .extension()
             .map(|s| s.to_str().expect("extension is not valid Unicode").to_string());
@@ -208,8 +211,13 @@ impl Directory {
         self.extensions.is_empty() && self.subdirectories.iter().all(|d| d.is_empty())
     }
 
-    /// Recursive auxiliary drawing method. Keeps track of whether the directory is the last to be
-    /// printed and of what pipes to skip.
+    /// Recursive auxiliary drawing method.
+    ///
+    /// # Arguments
+    ///
+    /// * `last` - Whether the directory is the last in the parent's subdirectories.
+    /// * `skipped` - Pipes to be skipped from printing.
+    /// * `draw_empty` - Draw self if empty.
     fn draw_aux(&self, last: bool, skipped: &mut Vec<usize>, draw_empty: bool) -> Result<()> {
         // Skip this row of pipes if the directory is the last one.
         if last {
@@ -347,12 +355,25 @@ mod tests {
 
         #[test]
         fn test_recursion() {
-            let directory = tests_dir(1);
+            let directory = tests_dir(2);
             let subdirectory = directory.subdirectories.first().expect("no subdirectories found");
 
+            assert_eq!(subdirectory.max_extension_chars(), 3);
+            assert_eq!(subdirectory.max_count_chars(), 1);
             assert_eq!(subdirectory.name().expect("could not read directory name"), "dirA");
             assert_eq!(subdirectory.count(Some("bar")), 1);
             assert_eq!(subdirectory.size(Some("bar")), Some(5));
+
+            let subsubdirectory = directory
+                .subdirectories
+                .last()
+                .expect("no subdirectories found")
+                .subdirectories
+                .first()
+                .expect("no subsubdirectory found");
+
+            assert_eq!(subsubdirectory.max_extension_chars(), 0);
+            assert_eq!(subsubdirectory.max_count_chars(), 0);
         }
 
         #[test]
