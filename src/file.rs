@@ -1,18 +1,17 @@
 use anyhow::{anyhow, Context, Result};
-use std::{
-    fmt::Display,
-    path::{Path, PathBuf},
-};
+use clap::ArgEnum;
+use std::path::{Path, PathBuf};
 
 const TPIPE: &str = "├";
 const LPIPE: &str = "└";
-const NOEXT: &str = " N/A";
+const NOEXT: &str = "N/A";
 
 /// Applies to extensions only, directories are always sorted alphabetically.
-#[derive(Debug)]
-enum ExtensionSortingMethod {
+#[derive(Debug, Clone, ArgEnum)]
+pub enum ExtensionSortingMethod {
     /// Sort by extension name. Files with multiple extensions (e.g. foo.tar.gz) are treated as
-    /// having a single extension (tar.gz) and alphabetically ordered accordingly.
+    /// having a single extension (tar.gz) and alphabetically ordered accordingly. Files without
+    /// an extension are grouped together first.
     Alphabetically,
 
     /// Sort by the number of files having this extension. Multiple extensions are treated as a
@@ -36,7 +35,7 @@ struct Extension {
 }
 
 #[derive(Debug)]
-struct Directory {
+pub struct Directory {
     /// Always a directory, symlinks are not considered.
     root: PathBuf,
 
@@ -59,26 +58,34 @@ impl Extension {
         }
     }
 
-    // Convert bytes to easily-readable BINARY-scaled units.
+    /// Convert bytes to easily-readable binary-scaled units.
     fn total_size_bytes_human_readable(&self, decimals: usize) -> String {
         if self.total_size_bytes < 2u64.pow(10) {
-            format!("{} B", self.total_size_bytes)
+            format!("{} B  ", self.total_size_bytes)
         } else if self.total_size_bytes < 1024u64.pow(2) {
             format!("{:.1$} kiB", self.total_size_bytes as f64 / 1024.0, decimals)
         } else if self.total_size_bytes < 1024u64.pow(3) {
             format!("{:.1$} MiB", self.total_size_bytes as f64 / 1024.0f64.powi(2), decimals)
-        } else {
+        } else if self.total_size_bytes < 1024u64.pow(4) {
             format!("{:.1$} GiB", self.total_size_bytes as f64 / 1024.0f64.powi(3), decimals)
+        } else {
+            format!("{:.1$} TiB", self.total_size_bytes as f64 / 1024.0f64.powi(4), decimals)
         }
+    }
+
+    /// Format an extension as ``$NAME ── $COUNT ── $SIZE``, minimizing white space.
+    fn to_string_formatted(&self, max_extension_chars: usize, max_count_chars: usize) -> String {
+        format!(
+            "{:max_extension_chars$} ── {:max_count_chars$} ── {:>10}",
+            self.name.as_ref().unwrap_or(&NOEXT.to_string()),
+            self.count,
+            self.total_size_bytes_human_readable(2),
+        )
     }
 }
 
 impl Directory {
-    fn new(root: PathBuf, max_depth: usize) -> Self {
-        Self::scan(root, 0, max_depth).unwrap_or_else(|err| panic!("{err}"))
-    }
-
-    fn scan(mut root: PathBuf, depth: usize, max_depth: usize) -> Result<Self> {
+    pub fn new(mut root: PathBuf, depth: usize, max_depth: usize) -> Result<Self> {
         let mut directory = Self {
             root: root.clone(),
             extensions: Vec::new(),
@@ -114,17 +121,21 @@ impl Directory {
                 } else if filetype.is_dir() {
                     directory
                         .subdirectories
-                        .push(Self::scan(entry.path(), depth + 1, max_depth)?)
+                        .push(Self::new(entry.path(), depth + 1, max_depth)?)
                 }
             }
         }
 
         // Subdirectories are always sorted by name, regardless of extension sorting.
-        directory.subdirectories.sort_unstable_by_key(|dir| dir.name());
+        directory
+            .subdirectories
+            .sort_unstable_by_key(|dir| dir.name().expect("invalid directory name"));
 
         Ok(directory)
     }
 
+    /// If the file's extension already exists, increment the count and add the file size to the
+    /// total. Otherwise create a new entry.
     fn add_file(file: &Path, extensions: &mut Vec<Extension>) {
         let extension = file
             .extension()
@@ -139,17 +150,23 @@ impl Directory {
         }
     }
 
-    fn sort_by(&mut self, method: ExtensionSortingMethod) {
+    pub fn sort_by(&mut self, method: ExtensionSortingMethod) {
         match method {
             ExtensionSortingMethod::Alphabetically => {
-                // TODO: remove this clone
-                self.extensions.sort_unstable_by_key(|e| e.name.clone())
+                self.extensions.sort_unstable_by(|e1, e2| e1.name.cmp(&e2.name));
             }
-            ExtensionSortingMethod::FileCount => self.extensions.sort_unstable_by_key(|e| e.count),
-            ExtensionSortingMethod::FileSize => self.extensions.sort_unstable_by_key(|e| e.total_size_bytes),
+            ExtensionSortingMethod::FileCount => {
+                self.extensions.sort_unstable_by_key(|e| e.count);
+                self.extensions.reverse();
+            }
+            ExtensionSortingMethod::FileSize => {
+                self.extensions.sort_unstable_by_key(|e| e.total_size_bytes);
+                self.extensions.reverse();
+            }
         }
     }
 
+    #[cfg(test)]
     fn count(&self, extension: Option<&str>) -> usize {
         self.extensions
             .iter()
@@ -157,6 +174,7 @@ impl Directory {
             .map_or(0, |e| e.count)
     }
 
+    #[cfg(test)]
     fn size(&self, extension: Option<&str>) -> Option<u64> {
         self.extensions
             .iter()
@@ -164,45 +182,84 @@ impl Directory {
             .map(|e| e.total_size_bytes)
     }
 
-    fn name(&self) -> String {
+    fn name(&self) -> Result<String> {
         self.root
             .file_name()
-            .expect("directory cannot be an ellipsis")
+            .context("directory cannot be an ellipsis")?
             .to_str()
-            .expect("could not convert directory name to string")
-            .to_string()
+            .ok_or_else(|| anyhow!("could not convert directory name to string"))
+            .map(|s| s.to_string())
     }
 
-    fn draw_aux(&self, last: bool, mut skipped: Vec<usize>) {
+    /// Returns the highest number of characters necessary to print out the extension.
+    /// Returns 0 if no extensions exist.
+    fn max_extension_chars(&self) -> usize {
+        self.extensions
+            .iter()
+            .map(|e| e.name.as_ref().unwrap_or(&NOEXT.to_string()).chars().count())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Returns the largest number of digits in an extension count.
+    /// Returns 0 if no extensions exist.
+    fn max_count_chars(&self) -> usize {
+        self.extensions
+            .iter()
+            .map(|e| {
+                (0..)
+                    .take_while(|i| 10u64.pow(*i) <= (e.count as usize).try_into().expect("so many files!"))
+                    .count()
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn draw(&self) -> Result<()> {
+        let mut skipped = Vec::new();
+        self.draw_aux(true, &mut skipped)
+    }
+
+    /// Recursive auxiliary drawing method. Keeps track of whether the directory is the last to be
+    /// printed and of what pipes to skip.
+    fn draw_aux(&self, last: bool, skipped: &mut Vec<usize>) -> Result<()> {
         if last {
             skipped.push(self.depth);
         }
 
         // Draw the current directory iteself.
         if self.depth == 0 {
-            println!("{}", self.name());
+            println!("{}", self.name()?);
         } else {
-            print_item(&self.name(), last, self.depth, &skipped);
+            print_item(&self.name()?, last, self.depth, skipped);
         }
 
         // Draw the contained extensions.
+        let max_extension_chars = self.max_extension_chars();
+        let max_count_chars = self.max_count_chars();
         for (idx, extension) in self.extensions.iter().enumerate() {
             print_item(
-                &extension.to_string(),
-                !self.subdirectories.is_empty() || idx + 1 == self.extensions.len(),
+                &extension.to_string_formatted(max_extension_chars, max_count_chars),
+                self.subdirectories.is_empty() && idx + 1 == self.extensions.len(),
                 self.depth + 1,
-                &skipped,
+                skipped,
             )
         }
 
         // Draw the subdirectories.
         for (idx, subdirectory) in self.subdirectories.iter().enumerate() {
-            subdirectory.draw_aux(idx + 1 == self.subdirectories.len(), skipped.clone())
+            subdirectory.draw_aux(idx + 1 == self.subdirectories.len(), skipped)?
         }
+
+        // Remove the last depth item once all items have been processed.
+        skipped.pop();
+
+        Ok(())
     }
 }
 
-// Depth zero is the depth of the items contained in the root directory the program was called in.
+/// Depth zero is the depth of the items contained in the root directory the program was called in.
+/// Skipped keeps track of which pipes to render during printing.
 fn vertical_bars(depth: usize, skipped: &[usize]) -> String {
     let mut s: String = "".to_owned();
     for i in 1..depth {
@@ -215,7 +272,14 @@ fn vertical_bars(depth: usize, skipped: &[usize]) -> String {
     s
 }
 
-/// Print any item text, file or directory alike.
+/// Print an extension or a directory.
+///
+/// # Arguments
+///
+/// * `last` - Whether the item is the last in the list and should therefore use an L-pipe rather
+/// than a T-pipe.
+/// * `depth` - Recursion depth, gives indentation.
+/// * `skipped` - Notes which pipes to skip drawing.
 fn print_item(text: &str, last: bool, depth: usize, skipped: &[usize]) {
     println!(
         "{}{}── {}",
@@ -225,26 +289,15 @@ fn print_item(text: &str, last: bool, depth: usize, skipped: &[usize]) {
     )
 }
 
-impl Display for Extension {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:>5} ── {:>3} ── {}",
-            self.name.as_ref().unwrap_or(&NOEXT.to_string()),
-            self.count,
-            self.total_size_bytes_human_readable(2),
-        )
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const TESTS_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
-    fn tests_dir() -> PathBuf {
-        PathBuf::from(TESTS_DIR).join("tests")
+    fn tests_dir(max_depth: usize) -> Directory {
+        let root = PathBuf::from(TESTS_DIR).join("tests");
+        Directory::new(root, 0, max_depth).expect("could not create directory")
     }
 
     mod directory {
@@ -252,18 +305,18 @@ mod tests {
 
         #[test]
         fn test_new() {
-            let root = tests_dir();
-            let directory = Directory::new(root.clone(), 0);
+            let root = PathBuf::from(TESTS_DIR).join("tests");
+            let directory = tests_dir(0);
             assert_eq!(directory.depth, 0);
             assert_eq!(directory.root, root);
-            assert_eq!(directory.extensions.len(), 3);
+            assert_eq!(directory.extensions.len(), 4);
             assert_eq!(directory.subdirectories.len(), 0);
-            assert_eq!(directory.name(), "tests");
+            assert_eq!(directory.name().expect("could not read directory name"), "tests");
         }
 
         #[test]
         fn test_count() {
-            let directory = Directory::new(tests_dir(), 0);
+            let directory = tests_dir(0);
             assert_eq!(directory.count(Some("foo")), 2);
             assert_eq!(directory.count(Some("bar")), 1);
             assert_eq!(directory.count(Some("non-existent")), 0);
@@ -272,7 +325,7 @@ mod tests {
 
         #[test]
         fn test_size() {
-            let directory = Directory::new(tests_dir(), 0);
+            let directory = tests_dir(0);
             assert_eq!(directory.size(Some("foo")), Some(20));
             assert_eq!(directory.size(Some("bar")), Some(5));
             assert_eq!(directory.size(Some("non-existent")), None);
@@ -281,10 +334,10 @@ mod tests {
 
         #[test]
         fn test_recursion() {
-            let directory = Directory::new(tests_dir(), 1);
+            let directory = tests_dir(1);
             let subdirectory = directory.subdirectories.first().expect("no subdirectories found");
 
-            assert_eq!(subdirectory.name(), "dirA");
+            assert_eq!(subdirectory.name().expect("could not read directory name"), "dirA");
             assert_eq!(subdirectory.count(Some("bar")), 1);
             assert_eq!(subdirectory.size(Some("bar")), Some(5));
         }
@@ -292,8 +345,8 @@ mod tests {
         #[test]
         #[ignore = "visual check"]
         fn test_draw() {
-            let directory = Directory::new(tests_dir(), 1);
-            directory.draw(true, Vec::new());
+            let directory = tests_dir(1);
+            directory.draw().expect("could not draw directory");
         }
     }
 }
