@@ -1,15 +1,16 @@
 [package]
-name = "rextc"
-version = "0.1.1"
 authors = ["tuydore <20150266+tuydore@users.noreply.github.com>"]
+categories = ["command-line-utilities"]
 description = "Like the 'tree' command, but recursively shows file number and file sizes for on a per-extension basis."
-edition = "2018"
+edition = "2021"
+keywords = ["files", "extension", "extensions"]
+license = "MIT"
+name = "rextc"
 readme = "README.md"
 repository = "https://github.com/tuydore/rust-extension-count"
-license = "MIT"
-keywords = ["files", "extension", "extensions"]
-categories = ["command-line-utilities"]
+version = "0.1.1"
 
 [dependencies]
-structopt = "0.3"
 anyhow = "1.0"
+glob = "0.3"
+structopt = "0.3"

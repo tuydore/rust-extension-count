@@ -1,3 +1,5 @@
+mod file;
+
 use anyhow::{Context, Result};
 use std::cmp::Ordering;
 use std::env;
