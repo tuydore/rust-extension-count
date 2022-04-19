@@ -4,7 +4,7 @@ Simple command line utility to show file count and total size on a per-extension
 
 Use `rextc -h` to show the help menu.
 ```
-rextc 2.0.0
+rextc 2.0.1
 tuydore <tuydore+github@protonmail.com>
 Like the 'tree' command, but recursively shows file number and file sizes on a per-extension
 basis.
