@@ -87,6 +87,8 @@ impl Extension {
 
 impl Directory {
     pub fn new(mut root: PathBuf, depth: usize, max_depth: usize) -> Result<Self> {
+        root = std::fs::canonicalize(root)?;
+
         let mut directory = Self {
             root: root.clone(),
             extensions: Vec::new(),
